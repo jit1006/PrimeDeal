@@ -52,7 +52,7 @@ export default function ProductCatalog() {
   // ✅ Fetch products when filters change
   useEffect(() => {
     const timeout = setTimeout(() => {
-      fetchAllProducts(search, selectedCategory);
+      fetchAllProducts(search, selectedCategory ?? undefined);
     }, 400);
     return () => clearTimeout(timeout);
   }, [search, selectedCategory]);
@@ -185,7 +185,7 @@ export default function ProductCatalog() {
                     {p.netQty}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {p.category?.name || "Uncategorized"}
+                    {typeof p.category === "string" ? p.category : p.category?.name || "Uncategorized"}
                   </p>
                 </div>
                 <Button

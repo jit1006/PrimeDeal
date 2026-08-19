@@ -6,7 +6,6 @@ import { MapPin, Loader2 } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAddressStore } from "@/zustand/useAddressStore";
 import { Address } from "../../../types/types";
-import { toast } from "sonner";
 
 const SetupAddress = () => {
   const navigate = useNavigate();
@@ -83,20 +82,21 @@ const SetupAddress = () => {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!address.latitude || !address.longitude) {
-      toast.warning("Please Provide Location !");
-      return;
-    }
+    const finalAddress = {
+      ...address,
+      latitude: address.latitude || 0,
+      longitude: address.longitude || 0,
+    };
     try {
       if (useAddressStore.getState().addresses.length === 0) {
-        address.isDefault = true;
+        finalAddress.isDefault = true;
       }
       if (id) {
-        await updateAddress(Number(id), address);
+        await updateAddress(Number(id), finalAddress);
       } else {
-        await addAddress(address);
+        await addAddress(finalAddress);
       }
-      navigate(-1);
+      navigate("/profile");
     } catch (error) {
       console.log(error);
     }

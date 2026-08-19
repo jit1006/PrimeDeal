@@ -14,9 +14,9 @@ import { DialogHeader, DialogFooter } from "@/components/ui/dialog";
 import { ProductListFormSchema, ProductListSchema } from "@/schema/ProductList";
 import { useProductStore } from "@/zustand/useProductStore";
 
-const ShopDialog = forwardRef((props, ref) => {
+const ShopDialog = forwardRef((_props, ref) => {
   const [input, setInput] = useState<ProductListFormSchema>({
-    title: "",
+    name: "",
     description: "",
     price: 0,
     image: undefined,
@@ -26,12 +26,11 @@ const ShopDialog = forwardRef((props, ref) => {
   const [open, setOpen] = useState(false);
   const [selectedShopId, setSelectedShopId] = useState<number | null>(null);
   const [unit, setUnit] = useState("unit");
-  const [error, setError] = useState<Partial<ProductListFormSchema>>({});
+  const [error, setError] = useState<Partial<Record<keyof ProductListFormSchema, string>>>({});
 
   const loading = useProductStore((state) => state.loading);
   const createProduct = useProductStore((state) => state.createProduct);
 
-  // Expose open() and close() methods to parent
   useImperativeHandle(ref, () => ({
     open: (id?: number) => {
       if (id) setSelectedShopId(id);
@@ -39,6 +38,16 @@ const ShopDialog = forwardRef((props, ref) => {
     },
     close: () => setOpen(false),
   }));
+
+  const changeEventHandler = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value, type } = e.target;
+    setInput({
+      ...input,
+      [name]: type === "number" ? Number(value) : value,
+    });
+  };
 
   const submitHandler = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -48,7 +57,11 @@ const ShopDialog = forwardRef((props, ref) => {
     });
     if (!result.success) {
       const fieldErrors = result.error.formErrors.fieldErrors;
-      setError(fieldErrors as Partial<ProductListFormSchema>);
+      const formattedErrors: Record<string, string> = {};
+      for (const key in fieldErrors) {
+        formattedErrors[key] = fieldErrors[key as keyof typeof fieldErrors]?.[0] || "";
+      }
+      setError(formattedErrors);
       return;
     }
 
@@ -59,7 +72,7 @@ const ShopDialog = forwardRef((props, ref) => {
       }
 
       const formData = new FormData();
-      formData.append("title", input.title);
+      formData.append("name", input.name);
       formData.append("description", input.description);
       formData.append("price", input.price.toString());
       formData.append("netQty", input.netQty + unit);
@@ -69,20 +82,18 @@ const ShopDialog = forwardRef((props, ref) => {
       }
 
       await createProduct(formData);
+      setOpen(false);
     } catch (error) {
       console.log(error);
     }
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(isOpen) => setOpen(isOpen)}
-    >
+    <Dialog open={open} onOpenChange={(isOpen) => setOpen(isOpen)}>
       <DialogTrigger asChild>
         <Button
           className="bg-brandOrange hover:bg-brandOrange/80 text-white flex items-center"
-          onClick={() => setSelectedShopId(shopItem?.id)}
+          onClick={() => setSelectedShopId(selectedShopId)}
         >
           <Plus className="mr-1" /> Add Product
         </Button>
@@ -105,14 +116,14 @@ const ShopDialog = forwardRef((props, ref) => {
               <Label className="mb-1.5 ml-1">Product Name</Label>
               <Input
                 type="text"
-                name="title"
+                name="name"
                 placeholder="Enter product name"
-                value={input.title}
+                value={input.name}
                 onChange={changeEventHandler}
               />
-              {error.title && (
-                <span className="text-xs font-medium text-error">
-                  {error.title}
+              {error.name && (
+                <span className="text-xs font-medium text-red-500">
+                  {error.name}
                 </span>
               )}
             </div>
@@ -128,7 +139,7 @@ const ShopDialog = forwardRef((props, ref) => {
                 onChange={changeEventHandler}
               />
               {error.price && (
-                <span className="text-xs font-medium text-error">
+                <span className="text-xs font-medium text-red-500">
                   {error.price}
                 </span>
               )}
@@ -145,7 +156,7 @@ const ShopDialog = forwardRef((props, ref) => {
                 className="border rounded-md p-2 h-20 max-h-40 overflow-y-auto resize-none bg-white dark:bg-gray-800 text-black dark:text-white focus:outline-none focus:ring-2 focus:ring-black"
               />
               {error.description && (
-                <span className="text-xs font-medium text-error">
+                <span className="text-xs font-medium text-red-500">
                   {error.description}
                 </span>
               )}
@@ -176,7 +187,7 @@ const ShopDialog = forwardRef((props, ref) => {
                 </select>
               </div>
               {error.netQty && (
-                <span className="text-xs font-medium text-error">
+                <span className="text-xs font-medium text-red-500">
                   {error.netQty}
                 </span>
               )}
@@ -190,15 +201,15 @@ const ShopDialog = forwardRef((props, ref) => {
                 accept=".png, .jpg, .jpeg"
                 name="image"
                 onChange={(e) =>
-                  props.setInput({
+                  setInput({
                     ...input,
                     image: e.target.files?.[0] || undefined,
                   })
                 }
               />
               {error.image && (
-                <span className="text-xs font-medium text-error">
-                  {error.image?.name || "*Product image is required"}
+                <span className="text-xs font-medium text-red-500">
+                  {error.image || "*Product image is required"}
                 </span>
               )}
             </div>

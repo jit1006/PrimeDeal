@@ -1,18 +1,18 @@
 import API from "@/config/api";
-import { orderItem } from "@/types/orderType";
+import { Order } from "@/types/orderType";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { NearbyShop, Shop, ShopInventory } from "../../../types/types";
+import { NearbyShop, Shop, ShopInventory } from "@/types/types";
 
 export type ShopState = {
   loading: boolean;
   shop: Shop[];
   nearbyShops: NearbyShop[];
   searchedShop: Shop[];
-  searchedProduct: ShopInventory[];
+  searchedProduct: any[];
   singleShop: Shop | null;
-  shopOrders: orderItem[];
+  shopOrders: Order[];
 
   // --- Actions ---
   createShop: (formData: FormData) => Promise<void>;
@@ -168,7 +168,7 @@ export const useShopStore = create<ShopState>()(
         try {
           const { data } = await API.get(`/shop/order`);
           if (data.success) {
-            set({ shopOrders: data.shopOrder });
+            set({ shopOrders: data.orders || data.shopOrder || [] });
           }
         } catch (err: any) {
           toast.error("Failed to fetch shop orders");
@@ -189,7 +189,7 @@ export const useShopStore = create<ShopState>()(
           if (data.success) {
             set({
               shopOrders: get().shopOrders.map((o) =>
-                o.id === orderId ? { ...o, status: orderStatus } : o
+                o.id === Number(orderId) ? { ...o, orderStatus: orderStatus as any } : o
               ),
             });
             toast.success("✅ Order status updated");
@@ -208,7 +208,7 @@ export const useShopStore = create<ShopState>()(
         set((state) => ({
           shop: state.shop.map((shop) =>
             shop.id === product.shopId
-              ? { ...shop, products: [...(shop.products || []), product] }
+              ? { ...shop, inventory: [...(shop.inventory || []), product] }
               : shop
           ),
         }));
@@ -221,7 +221,7 @@ export const useShopStore = create<ShopState>()(
             shop.id === updatedProduct.shopId
               ? {
                   ...shop,
-                  products: shop.products?.map((p) =>
+                  inventory: shop.inventory?.map((p) =>
                     p.id === updatedProduct.id ? updatedProduct : p
                   ),
                 }

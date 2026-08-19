@@ -25,7 +25,7 @@ const ShopDetails = () => {
   const allCategories = useMemo(() => {
     if (!inventory.length) return ["All"];
     const unique = new Set(
-      inventory.map((item) => item.product?.category?.name).filter(Boolean)
+      inventory.map((item) => item.product?.category?.name).filter((name): name is string => Boolean(name))
     );
     return ["All", ...Array.from(unique)];
   }, [inventory]);

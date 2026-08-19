@@ -1,12 +1,8 @@
-import axios from "axios";
+import API from "@/config/api";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { useShopStore } from "./useShopStore";
-
-const API_BASE = "http://localhost:3000/api/v1/product";
-
-axios.defaults.withCredentials = true;
 
 // ---------- TYPES ----------
 export interface Product {
@@ -15,7 +11,7 @@ export interface Product {
   description: string;
   netQty: string;
   image: string;
-  category?: string;
+  category?: string | { id?: number; name?: string };
   price?: number;
   quantity?: number;
   isAvailable?: boolean;
@@ -46,7 +42,7 @@ type ProductStoreState = {
   shopInventory: ShopInventory[];
 
   // Actions
-  fetchAllProducts: () => Promise<void>;
+  fetchAllProducts: (search?: string, categoryId?: number) => Promise<void>;
   fetchProductsByShop: (shopId: number) => Promise<void>;
   addExistingProductToShop: (
     productId: number,
@@ -56,8 +52,8 @@ type ProductStoreState = {
     netQtyValue: number,
     unit: string
   ) => Promise<void>;
-  createProduct: (formData: FormData, shopId: number) => Promise<void>;
-  editProduct: (productId: number, formData: FormData) => Promise<void>;
+  createProduct: (formData: FormData, shopId?: number) => Promise<void>;
+  editProduct: (productId: number | string, formData: FormData) => Promise<void>;
 };
 
 // ---------- HELPER ----------
@@ -83,7 +79,7 @@ export const useProductStore = create<ProductStoreState>()(
           if (search) params.search = search.trim();
           if (categoryId) params.categoryId = categoryId;
 
-          const res = await axios.get(`${API_BASE}/catalog`, { params });
+          const res = await API.get(`/product/catalog`, { params });
 
           if (res.data.success) {
             set({
@@ -104,7 +100,7 @@ export const useProductStore = create<ProductStoreState>()(
       fetchProductsByShop: async (shopId) => {
         set({ loading: true });
         try {
-          const res = await axios.get(`${API_BASE}/shop/${shopId}`);
+          const res = await API.get(`/product/shop/${shopId}`);
           if (res.data.success) {
             set({
               shopInventory: res.data.products,
@@ -132,7 +128,7 @@ export const useProductStore = create<ProductStoreState>()(
         set({ loading: true });
 
         try {
-          const res = await axios.post(`${API_BASE}/add-to-shop`, {
+          const res = await API.post(`/product/add-to-shop`, {
             productId,
             shopId,
             price,
@@ -150,7 +146,7 @@ export const useProductStore = create<ProductStoreState>()(
               shopInventory: [...state.shopInventory, inventory],
             }));
 
-            // ✅ Sync with shop store (if available)
+            // Sync with shop store
             const shopStore = useShopStore.getState();
             shopStore?.addProductToShop?.(inventory);
           } else {
@@ -167,9 +163,9 @@ export const useProductStore = create<ProductStoreState>()(
       createProduct: async (formData, shopId) => {
         set({ loading: true });
         try {
-          const res = await axios.post(`${API_BASE}`, formData, {
+          const res = await API.post(`/product`, formData, {
             headers: { "Content-Type": "multipart/form-data" },
-            params: { shopId },
+            params: shopId ? { shopId } : undefined,
           });
 
           if (res.data.success) {
@@ -185,8 +181,10 @@ export const useProductStore = create<ProductStoreState>()(
             }));
 
             // Sync with shop store
-            const shopStore = useShopStore.getState();
-            shopStore?.addProductToShop?.(inventory);
+            if (inventory) {
+              const shopStore = useShopStore.getState();
+              shopStore?.addProductToShop?.(inventory);
+            }
           }
         } catch (error) {
           set({ loading: false });
@@ -198,7 +196,7 @@ export const useProductStore = create<ProductStoreState>()(
       editProduct: async (productId, formData) => {
         set({ loading: true });
         try {
-          const res = await axios.put(`${API_BASE}/${productId}`, formData, {
+          const res = await API.put(`/product/${productId}`, formData, {
             headers: { "Content-Type": "multipart/form-data" },
           });
 

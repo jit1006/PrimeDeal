@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const ProductListSchema = z.object({
-    title: z.string().min(2, "Product Name must be at least 2 characters").max(30, "Product Name must be less than 30 characters").regex(/^[A-Za-z\s]+$/, " / Product name must contain only letters and spaces"),
+    name: z.string().min(2, "Product Name must be at least 2 characters").max(30, "Product Name must be less than 30 characters").regex(/^[A-Za-z\s]+$/, " / Product name must contain only letters and spaces"),
     description: z.string().min(10, "Description must be at least 10 characters").max(200, "Description must be less than 200 characters"),
     price: z.number().min(10, "Price must be at least 10").max(1000, "Price must be less than 1000"),
     netQty: z.string()

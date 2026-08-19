@@ -139,7 +139,11 @@ export const useUserStore = create<UserState>()(
       //update user profile api implementation
       updateProfile: async (input: ProfileInputState) => {
         try {
-          const response = await API.put(`/user/profile/update`, input, {
+          const payload = {
+            ...input,
+            contact: input.phoneNumber,
+          };
+          const response = await API.put(`/user/profile/update`, payload, {
             headers: {
               "Content-Type": "application/json",
             },
@@ -149,7 +153,7 @@ export const useUserStore = create<UserState>()(
             set({ user: response.data.user, isAuthenticated: true });
           }
         } catch (error: any) {
-          toast.error(error.response.data.message);
+          toast.error(error?.response?.data?.message || "Failed to update profile");
         }
       },
     }),

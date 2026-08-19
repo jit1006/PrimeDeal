@@ -8,18 +8,17 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 
 const StoreOrders = () => {
-    const { getShopOrders, updateShopOrders, shopOrders, loading } = useShopStore();
-    const {shop} = useShopStore();
+    const { getShopOrders, updateShopOrders, shopOrders, loading, shop } = useShopStore();
 
     useEffect(() => {
         getShopOrders();
-    }, []);
+    }, [getShopOrders]);
 
     const handleStatusChange = async (orderId: string, status: string) => {
         await updateShopOrders(orderId, status);
     };
 
-    if (!shop) {
+    if (!shop || shop.length === 0) {
         return (
             <div className="max-w-6xl mx-auto my-10 p-6 bg-white rounded-lg flex flex-col items-center justify-center min-h-[400px] text-center">
                 <div className="rounded-full bg-brandOrange/10 p-4 mb-4">
@@ -67,17 +66,19 @@ const StoreOrders = () => {
                                         <span className="font-medium">Order ID: </span> {order.id}
                                     </p>
                                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                                        <span className="font-medium">Customer: </span> {order.deliveryDetails.name}
+                                        <span className="font-medium">Customer: </span> {order.user?.fullname || "Guest User"}
                                     </p>
                                     <p className="text-sm text-gray-600 dark:text-gray-400 w-60 break-words">
-                                        <span className="font-medium">Address: </span> {order.deliveryDetails.address}, {order.deliveryDetails.city}
+                                        <span className="font-medium">Address: </span> {order.address?.addressLine1 || ""}, {order.address?.city || ""}
                                     </p>
                                     <p className="text-sm text-gray-600 dark:text-gray-400">
                                         <span className="font-medium">Ordered Items: </span>
                                     </p>
                                     <ul className="list-disc list-inside text-sm text-gray-600 dark:text-gray-400">
-                                        {order.cartItems.map((item, index) => (
-                                            <li key={index}>{item.name} - {item.netQty} (x{item.quantity}) </li>
+                                        {(order.items || []).map((item, index) => (
+                                            <li key={index}>
+                                                {item.product?.name || `Product #${item.productId}`} (x{item.quantity})
+                                            </li>
                                         ))}
                                     </ul>
                                     <p className="text-sm text-gray-600 dark:text-gray-400 font-bold">
@@ -90,15 +91,25 @@ const StoreOrders = () => {
                                     <Label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                                         Order Status
                                     </Label>
-                                    <Select onValueChange={(newStatus) => handleStatusChange(order.id, newStatus)} defaultValue={order.status}>
+                                    <Select
+                                        onValueChange={(newStatus) => handleStatusChange(String(order.id), newStatus)}
+                                        defaultValue={order.orderStatus}
+                                    >
                                         <SelectTrigger className="w-full dark:bg-gray-700">
                                             <SelectValue placeholder="Select Status" />
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectGroup>
-                                                {["Pending", "Confirmed", "Preparing", "OutforDelivery", "Delivered"].map((status, index) => (
-                                                    <SelectItem key={index} value={status.toLowerCase()}>
-                                                        {status}
+                                                {[
+                                                    { label: "Pending", value: "pending" },
+                                                    { label: "Confirmed", value: "confirmed" },
+                                                    { label: "Preparing", value: "preparing" },
+                                                    { label: "Out for Delivery", value: "out_for_delivery" },
+                                                    { label: "Delivered", value: "delivered" },
+                                                    { label: "Cancelled", value: "cancelled" },
+                                                ].map((st) => (
+                                                    <SelectItem key={st.value} value={st.value}>
+                                                        {st.label}
                                                     </SelectItem>
                                                 ))}
                                             </SelectGroup>
@@ -113,6 +124,5 @@ const StoreOrders = () => {
         </div>
     );
 };
-
 
 export default StoreOrders;

@@ -32,9 +32,16 @@ import LandingPage from "./components/LandingPage";
 import ProductCatalog from "./admin/ProductCatalog";
 import OrderDetailPage from "./components/OrdersDetail";
 
-const ProtectedRoutes = ({ children }: { children: React.ReactNode }) => {
+const AuthenticatedRoutes = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated } = useUserStore();
+  if (!isAuthenticated) {
+    return <Navigate to="/home" replace={true} />;
+  }
+  return children;
+};
+
+const UserOnlyRoutes = ({ children }: { children: React.ReactNode }) => {
   const { isAuthenticated, user } = useUserStore();
-  console.log(isAuthenticated, user);
   if (!isAuthenticated) {
     return <Navigate to="/home" replace={true} />;
   }
@@ -82,24 +89,40 @@ function App() {
         <Routes>
           {/*  Normal Layout Routes (Navbar stays) */}
           <Route path="/" element={<MainLayout />}>
-            {/* Protected Routes under Main Layout */}
+            {/* Profile & Address Routes (Accessible by both Users and Admins) */}
             <Route
               path="profile"
               element={
-                <ProtectedRoutes>
+                <AuthenticatedRoutes>
                   <Profile />
-                </ProtectedRoutes>
+                </AuthenticatedRoutes>
+              }
+            />
+            <Route
+              path="setup-address"
+              element={
+                <AuthenticatedRoutes>
+                  <SetupAddress />
+                </AuthenticatedRoutes>
+              }
+            />
+            <Route
+              path="setup-address/:id"
+              element={
+                <AuthenticatedRoutes>
+                  <SetupAddress />
+                </AuthenticatedRoutes>
               }
             />
           </Route>
 
-          {/* ✅ Normal User Routes */}
+          {/* ✅ Normal Customer Routes */}
           <Route
             path="/"
             element={
-              <ProtectedRoutes>
+              <UserOnlyRoutes>
                 <MainLayout />
-              </ProtectedRoutes>
+              </UserOnlyRoutes>
             }
           >
             <Route index element={<HeroSection />} />
@@ -109,8 +132,6 @@ function App() {
             <Route path="cart" element={<Cart />} />
             <Route path="order" element={<OrderPage />} />
             <Route path="order/:id" element={<OrderDetailPage />} />
-            <Route path="setup-address" element={<SetupAddress />} />
-            <Route path="setup-address/:id" element={<SetupAddress />} />
           </Route>
 
           {/* Admin Routes */}

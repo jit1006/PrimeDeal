@@ -96,7 +96,7 @@ if (!singleOrder) {
           Items in this Order
         </h3>
         <div className="space-y-3">
-          {order.items.map((item) => (
+          {(order.items || []).map((item) => (
             <div
               key={item.id}
               className="flex justify-between items-center border-b border-gray-100 dark:border-gray-700 pb-3 last:border-none"
