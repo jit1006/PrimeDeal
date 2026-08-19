@@ -4,4 +4,6 @@ node_modules/
 *.db-journal
 *.log
 dist/
-backend
+backend
+Project_Documentation/
+
