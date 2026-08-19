@@ -12,10 +12,9 @@ declare global{
 
 export const isAuthenticated = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const token = req.cookies.token;
-        console.log("Token : ", token)
+        const token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
         if (!token) {
-            res.status(401).json({ success: false, message: " User Unauthorized" });
+            res.status(401).json({ success: false, message: "User Unauthorized" });
             return;
         }
 
