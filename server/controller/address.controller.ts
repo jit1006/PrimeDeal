@@ -11,7 +11,10 @@ export const addAddress = asyncHandler(async (req: Request, res: Response): Prom
     throw new AppError("Required fields missing", 400);
   }
 
-  if (isDefault) {
+  const existingCount = await prisma.address.count({ where: { userId } });
+  const shouldBeDefault = !!isDefault || existingCount === 0;
+
+  if (shouldBeDefault && existingCount > 0) {
     await prisma.address.updateMany({
       where: { userId, isDefault: true },
       data: { isDefault: false },
@@ -29,7 +32,7 @@ export const addAddress = asyncHandler(async (req: Request, res: Response): Prom
       country,
       latitude: latitude ? parseFloat(latitude) : null,
       longitude: longitude ? parseFloat(longitude) : null,
-      isDefault: !!isDefault,
+      isDefault: shouldBeDefault,
     },
   });
 

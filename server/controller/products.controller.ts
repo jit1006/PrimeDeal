@@ -4,6 +4,19 @@ import { prisma } from "../db/db";
 import { AppError, asyncHandler } from "../utils/asyncHandler";
 import { Unit } from "@prisma/client";
 
+// ---------- HELPER TO NORMALIZE UNIT ----------
+const normalizeUnit = (u: any): Unit => {
+  const str = String(u || "").toLowerCase().trim();
+  if (str === "gms" || str === "g" || str === "gram" || str === "grams") return Unit.g;
+  if (str === "kg" || str === "kilogram" || str === "kilograms") return Unit.kg;
+  if (str === "mg" || str === "milligram") return Unit.mg;
+  if (str === "ml" || str === "millilitre") return Unit.ml;
+  if (str === "l" || str === "ltr" || str === "liter" || str === "litre") return Unit.l;
+  if (str === "pcs" || str === "unit" || str === "piece" || str === "pieces") return Unit.pcs;
+  if (Object.values(Unit).includes(str as Unit)) return str as Unit;
+  return Unit.pcs;
+};
+
 // ----------------- Add Product -----------------
 export const addProduct = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -11,54 +24,82 @@ export const addProduct = async (req: Request, res: Response): Promise<void> => 
     const file = req.file;
 
     if (!file) {
-      res.status(400).json({ success: false, message: "No file uploaded" });
+      res.status(400).json({ success: false, message: "No product image uploaded" });
       return;
     }
 
-    if (!netQtyValue || !unit) {
+    if (!name || !netQtyValue) {
       res.status(400).json({
         success: false,
-        message: "Net quantity value and unit are required",
+        message: "Product name and net quantity value are required",
       });
       return;
     }
 
-    // ✅ Validate unit enum
-    if (!Object.values(Unit).includes(unit)) {
-      res.status(400).json({
-        success: false,
-        message: `Invalid unit. Must be one of: ${Object.values(Unit).join(", ")}`,
-      });
+    const safeUnit = normalizeUnit(unit);
+
+    // ✅ Target Shop resolution
+    const targetShopId = Number(shopId || req.query.shopId);
+    if (!targetShopId || isNaN(targetShopId)) {
+      res.status(400).json({ success: false, message: "Valid Shop ID is required" });
       return;
     }
 
-    // ✅ Validate shop
-    const shop = await prisma.shop.findUnique({ where: { id: Number(shopId) } });
+    const shop = await prisma.shop.findUnique({ where: { id: targetShopId } });
     if (!shop) {
       res.status(404).json({ success: false, message: "Shop not found" });
       return;
     }
 
-    // ✅ Normalize fields
+    // ✅ Ensure a valid categoryId
+    let catId = Number(categoryId);
+    if (!catId || isNaN(catId) || catId <= 0) {
+      let defaultCat = await prisma.category.findFirst({ where: { name: "General" } });
+      if (!defaultCat) {
+        defaultCat = await prisma.category.create({
+          data: { name: "General", description: "General daily essentials" },
+        });
+      }
+      catId = defaultCat.id;
+    } else {
+      const existingCat = await prisma.category.findUnique({ where: { id: catId } });
+      if (!existingCat) {
+        let defaultCat = await prisma.category.findFirst({ where: { name: "General" } });
+        if (!defaultCat) {
+          defaultCat = await prisma.category.create({
+            data: { name: "General", description: "General daily essentials" },
+          });
+        }
+        catId = defaultCat.id;
+      }
+    }
+
     const trimmedName = name.trim();
-    const trimmedDescription = description?.trim();
+    const trimmedDescription = description?.trim() || "";
 
-    // ✅ Upload product image
-    const imageURL = await uploadImageOnCloudinary(file as Express.Multer.File);
+    // ✅ Image upload with fallback
+    let imageURL = "https://placehold.co/400x400?text=Product";
+    try {
+      imageURL = await uploadImageOnCloudinary(file as Express.Multer.File);
+    } catch (cloudErr) {
+      console.warn("⚠️ Cloudinary upload warning (using data URI fallback):", cloudErr);
+      const base64Image = Buffer.from((file as Express.Multer.File).buffer).toString("base64");
+      imageURL = `data:${(file as Express.Multer.File).mimetype};base64,${base64Image}`;
+    }
 
-    // ✅ Check if global product exists
+    // ✅ Find or create global product
     let product = await prisma.product.findFirst({
-      where: { name: trimmedName.toLowerCase() },
+      where: { name: trimmedName },
     });
 
     if (!product) {
       product = await prisma.product.create({
         data: {
           name: trimmedName,
-          description: trimmedDescription || "",
+          description: trimmedDescription,
           image: imageURL,
-          categoryId: Number(categoryId),
-          netQty: `${netQtyValue}${unit}`, // e.g. “500g”
+          categoryId: catId,
+          netQty: `${netQtyValue}${safeUnit}`,
         },
       });
     }
@@ -71,7 +112,7 @@ export const addProduct = async (req: Request, res: Response): Promise<void> => 
     if (existingInventory) {
       res.status(400).json({
         success: false,
-        message: "Product already exists in this shop",
+        message: "Product already exists in this shop's inventory",
       });
       return;
     }
@@ -81,11 +122,16 @@ export const addProduct = async (req: Request, res: Response): Promise<void> => 
       data: {
         shopId: shop.id,
         productId: product.id,
-        price: parseFloat(price),
-        quantity: 0,
-        netQty: parseFloat(netQtyValue),
-        unit: unit as Unit,
+        price: parseFloat(price) || 0,
+        quantity: 100, // default available stock
+        netQty: parseFloat(netQtyValue) || 1,
+        unit: safeUnit,
         isAvailable: true,
+      },
+      include: {
+        product: {
+          include: { category: true },
+        },
       },
     });
 
@@ -95,9 +141,9 @@ export const addProduct = async (req: Request, res: Response): Promise<void> => 
       product,
       inventory,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Error adding product:", error);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    res.status(500).json({ success: false, message: error?.message || "Internal Server Error" });
   }
 };
 
@@ -114,17 +160,14 @@ export const editProduct = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // 🏪 Identify shop from authenticated user (replace `req.id` if needed)
-    const shop = await prisma.shop.findUnique({ where: { id: Number(req.id) } });
-    if (!shop) {
-      res.status(404).json({ success: false, message: "Shop not found" });
-      return;
-    }
+    const userId = Number(req.id);
+    const userShops = await prisma.shop.findMany({ where: { userId }, select: { id: true } });
+    const userShopIds = userShops.map((s) => s.id);
 
-    // ✅ Check inventory link
-    const inventory = await prisma.shopInventory.findUnique({
-      where: { shopId_productId: { shopId: shop.id, productId: product.id } },
+    const inventory = await prisma.shopInventory.findFirst({
+      where: { productId: product.id, shopId: { in: userShopIds } },
     });
+
     if (!inventory) {
       res.status(403).json({
         success: false,
@@ -133,13 +176,16 @@ export const editProduct = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // ✅ Upload new image if provided
     let imageURL = product.image;
     if (file) {
-      imageURL = await uploadImageOnCloudinary(file as Express.Multer.File);
+      try {
+        imageURL = await uploadImageOnCloudinary(file as Express.Multer.File);
+      } catch (cloudErr) {
+        const base64Image = Buffer.from((file as Express.Multer.File).buffer).toString("base64");
+        imageURL = `data:${(file as Express.Multer.File).mimetype};base64,${base64Image}`;
+      }
     }
 
-    // ✅ Update product
     const updatedProduct = await prisma.product.update({
       where: { id: product.id },
       data: {
@@ -150,13 +196,12 @@ export const editProduct = async (req: Request, res: Response): Promise<void> =>
       },
     });
 
-    // ✅ Update inventory (price / unit / qty)
     const updatedInventory = await prisma.shopInventory.update({
       where: { id: inventory.id },
       data: {
         price: price ? parseFloat(price) : inventory.price,
         netQty: netQtyValue ? parseFloat(netQtyValue) : inventory.netQty,
-        unit: unit ? (unit as Unit) : inventory.unit,
+        unit: unit ? normalizeUnit(unit) : inventory.unit,
       },
     });
 
@@ -166,9 +211,9 @@ export const editProduct = async (req: Request, res: Response): Promise<void> =>
       product: updatedProduct,
       inventory: updatedInventory,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Error editing product:", error);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    res.status(500).json({ success: false, message: error?.message || "Internal Server Error" });
   }
 };
 
@@ -176,19 +221,16 @@ export const editProduct = async (req: Request, res: Response): Promise<void> =>
 export const toggleProductAvailability = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const shop = await prisma.shop.findUnique({ where: { id: Number(req.id) } });
+    const userId = Number(req.id);
+    const userShops = await prisma.shop.findMany({ where: { userId }, select: { id: true } });
+    const userShopIds = userShops.map((s) => s.id);
 
-    if (!shop) {
-      res.status(404).json({ success: false, message: "Shop not found" });
-      return;
-    }
-
-    const inventory = await prisma.shopInventory.findUnique({
-      where: { shopId_productId: { shopId: shop.id, productId: Number(id) } },
+    const inventory = await prisma.shopInventory.findFirst({
+      where: { productId: Number(id), shopId: { in: userShopIds } },
     });
 
     if (!inventory) {
-      res.status(404).json({ success: false, message: "Product not found in shop" });
+      res.status(404).json({ success: false, message: "Product not found in your shop inventory" });
       return;
     }
 
@@ -202,9 +244,9 @@ export const toggleProductAvailability = async (req: Request, res: Response): Pr
       message: updated.isAvailable ? "Product set as available" : "Product set as unavailable",
       inventory: updated,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Error toggling availability:", error);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    res.status(500).json({ success: false, message: error?.message || "Internal Server Error" });
   }
 };
 
@@ -228,6 +270,7 @@ export const getAllProductsInShop = async (req: Request, res: Response): Promise
 
     const products = inventories.map((item) => ({
       id: item.product.id,
+      inventoryId: item.id,
       name: item.product.name,
       description: item.product.description,
       category: item.product.category?.name,
@@ -244,9 +287,9 @@ export const getAllProductsInShop = async (req: Request, res: Response): Promise
       count: products.length,
       products,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Error fetching shop products:", error);
-    res.status(500).json({ success: false, message: "Internal Server Error" });
+    res.status(500).json({ success: false, message: error?.message || "Internal Server Error" });
   }
 };
 
@@ -258,9 +301,9 @@ export const getAllProducts = asyncHandler(async (req, res) => {
 
   if (search) {
     filters.OR = [
-      { name: { contains: String(search), mode: "insensitive" } },
-      { brand: { contains: String(search), mode: "insensitive" } },
-      { description: { contains: String(search), mode: "insensitive" } },
+      { name: { contains: String(search) } },
+      { brand: { contains: String(search) } },
+      { description: { contains: String(search) } },
     ];
   }
 
@@ -283,8 +326,6 @@ export const getAllProducts = asyncHandler(async (req, res) => {
   });
 });
 
-
-
 // 🔍 Search products with best price + nearby + available filters
 export const searchProduct = asyncHandler(async (req: Request, res: Response) => {
   const query = (req.query.q as string)?.trim() || "";
@@ -304,23 +345,32 @@ export const searchProduct = asyncHandler(async (req: Request, res: Response) =>
   const address = user.addresses[0];
   if (!address) throw new AppError("Default address not found", 400);
 
-  // Constants
-  const MAX_DISTANCE_KM = 10; // You can tune this value
+  const MAX_DISTANCE_KM = 10;
+  const EARTH_RADIUS_KM = 6371;
+  const toRad = (value: number) => (value * Math.PI) / 180;
 
-  // Helper: filter shops by nearby distance using Haversine formula (SQL raw)
-  const nearbyShops = await prisma.$queryRawUnsafe<any[]>(`
-    SELECT id, storeName, latitude, longitude,
-    (6371 * acos(
-      cos(radians(${address.latitude})) *
-      cos(radians(latitude)) *
-      cos(radians(longitude) - radians(${address.longitude})) +
-      sin(radians(${address.latitude})) *
-      sin(radians(latitude))
-    )) AS distance
-    FROM Shop
-    HAVING distance <= ${MAX_DISTANCE_KM}
-    ORDER BY distance ASC;
-  `);
+  const userLat = address.latitude || 0;
+  const userLon = address.longitude || 0;
+
+  const allShops = await prisma.shop.findMany({
+    select: { id: true, storeName: true, latitude: true, longitude: true },
+  });
+
+  const nearbyShops = allShops
+    .map((shop) => {
+      const dLat = toRad(shop.latitude - userLat);
+      const dLon = toRad(shop.longitude - userLon);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(userLat)) *
+          Math.cos(toRad(shop.latitude)) *
+          Math.sin(dLon / 2) *
+          Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return { ...shop, distance: EARTH_RADIUS_KM * c };
+    })
+    .filter((s) => s.distance <= MAX_DISTANCE_KM)
+    .sort((a, b) => a.distance - b.distance);
 
   const nearbyShopIds = nearbyShops.map((shop) => shop.id);
   if (nearbyShopIds.length === 0) {
@@ -331,16 +381,15 @@ export const searchProduct = asyncHandler(async (req: Request, res: Response) =>
     });
   }
 
-  // Find available products from those shops with best price
   const inventories = await prisma.shopInventory.findMany({
     where: {
       isAvailable: true,
       shopId: { in: nearbyShopIds },
       product: {
         OR: [
-          { name: { contains: query, } },
-          { brand: { contains: query, } },
-          { description: { contains: query, } },
+          { name: { contains: query } },
+          { brand: { contains: query } },
+          { description: { contains: query } },
         ],
       },
     },
@@ -360,7 +409,6 @@ export const searchProduct = asyncHandler(async (req: Request, res: Response) =>
     });
   }
 
-  // Group by productId to find best price
   const bestProductsMap = new Map<number, any>();
   for (const inv of inventories) {
     const existing = bestProductsMap.get(inv.productId);
@@ -391,11 +439,6 @@ export const searchProduct = asyncHandler(async (req: Request, res: Response) =>
   });
 });
 
-/**
- * @desc    Get all product categories
- * @route   GET /api/v1/category
- * @access  Public
- */
 export const getAllCategories = asyncHandler(async (req, res) => {
   const categories = await prisma.category.findMany({
     orderBy: { name: "asc" },
@@ -409,14 +452,6 @@ export const getAllCategories = asyncHandler(async (req, res) => {
     },
   });
 
-  if (!categories || categories.length === 0) {
-    return res.status(404).json({
-      success: false,
-      message: "No categories found",
-      categories: [],
-    });
-  }
-
   res.status(200).json({
     success: true,
     count: categories.length,
@@ -424,11 +459,9 @@ export const getAllCategories = asyncHandler(async (req, res) => {
   });
 });
 
-
 export const addProductToShop = asyncHandler(async (req: Request, res: Response) => {
   const { productId, shopId, price, quantity, netQtyValue, unit } = req.body;
-  console.log(req.body)
-  // ✅ Validate required fields
+
   if (!productId || !shopId || !price || !netQtyValue || !unit) {
     return res.status(400).json({
       success: false,
@@ -436,7 +469,6 @@ export const addProductToShop = asyncHandler(async (req: Request, res: Response)
     });
   }
 
-  // ✅ Check product existence
   const product = await prisma.product.findUnique({
     where: { id: Number(productId) },
   });
@@ -447,7 +479,6 @@ export const addProductToShop = asyncHandler(async (req: Request, res: Response)
     });
   }
 
-  // ✅ Check shop existence
   const shop = await prisma.shop.findUnique({
     where: { id: Number(shopId) },
   });
@@ -458,15 +489,8 @@ export const addProductToShop = asyncHandler(async (req: Request, res: Response)
     });
   }
 
-  // ✅ Validate unit type against Prisma Enum
-  if (!Object.values(Unit).includes(unit as Unit)) {
-    return res.status(400).json({
-      success: false,
-      message: `Invalid unit. Must be one of: ${Object.values(Unit).join(", ")}`,
-    });
-  }
+  const safeUnit = normalizeUnit(unit);
 
-  // ✅ Prevent duplicate inventory record
   const existing = await prisma.shopInventory.findUnique({
     where: {
       shopId_productId: {
@@ -479,11 +503,10 @@ export const addProductToShop = asyncHandler(async (req: Request, res: Response)
   if (existing) {
     return res.status(400).json({
       success: false,
-      message: "Product already exists in this shop’s inventory",
+      message: "Product already exists in this shop's inventory",
     });
   }
 
-  // ✅ Create inventory entry
   const inventory = await prisma.shopInventory.create({
     data: {
       shopId: Number(shopId),
@@ -491,7 +514,7 @@ export const addProductToShop = asyncHandler(async (req: Request, res: Response)
       price: parseFloat(price),
       quantity: quantity ? Number(quantity) : 0,
       netQty: parseFloat(netQtyValue),
-      unit: unit as Unit,
+      unit: safeUnit,
       isAvailable: true,
     },
     include: {
@@ -510,7 +533,7 @@ export const addProductToShop = asyncHandler(async (req: Request, res: Response)
 
   return res.status(201).json({
     success: true,
-    message: "✅ Product successfully added to shop inventory",
+    message: "Product successfully added to shop inventory",
     inventory,
   });
 });

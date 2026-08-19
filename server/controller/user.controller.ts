@@ -6,14 +6,14 @@ import { AppError, asyncHandler } from "../utils/asyncHandler";
 
 /* ---------------------- SIGN UP ---------------------- */
 export const signUp = asyncHandler(async (req, res) => {
-  let { fullname, email, password, contact,admin } = req.body;
+  let { fullname, email, password, contact, phoneNumber, admin } = req.body;
 
   // check if user exists
   let user = await prisma.user.findUnique({ where: { email } });
   if (user) throw new AppError("User already exists", 400);
 
   fullname = fullname.trim();
-  contact = contact.trim();
+  const phone = (contact || phoneNumber || "").trim();
   password = await bcrypt.hash(password, 10);
 
   // create user
@@ -21,9 +21,9 @@ export const signUp = asyncHandler(async (req, res) => {
     data: {
       fullname,
       email,
-      passwordHash:password,
-      phoneNumber:contact, // keep as string since Prisma schema has String
-      admin
+      passwordHash: password,
+      phoneNumber: phone,
+      admin,
     },
   });
 
@@ -54,9 +54,17 @@ export const Login = asyncHandler(async (req, res) => {
   const createdUser = await prisma.user.update({
     where: { id: user.id },
     data: { updatedAt: new Date() },
+    select: {
+      id: true,
+      fullname: true,
+      email: true,
+      phoneNumber: true,
+      profilePicture: true,
+      admin: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
-  //@ts-ignore
-  delete createdUser.passwordHash;
 
   res.status(200).json({
     success: true,
@@ -98,27 +106,34 @@ export const checkAuth = asyncHandler(async (req, res) => {
 /* ---------------------- UPDATE PROFILE ---------------------- */
 export const updateUserProfile = asyncHandler(async (req, res) => {
   const userId = req.id;
-  const { fullname, email, contact, profilePicture } = req.body;
+  const { fullname, email, contact, phoneNumber, profilePicture } = req.body;
 
-  // upload image on cloudinary
+  const phoneToSave = (phoneNumber || contact || "").trim();
+
+  // upload image on cloudinary if data URI
   let uploadedImage = null;
-  if (profilePicture) {
-    const cloudResponse = await cloudinary.uploader.upload(profilePicture);
-    uploadedImage = cloudResponse.secure_url;
+  if (profilePicture && profilePicture.startsWith("data:")) {
+    try {
+      const cloudResponse = await cloudinary.uploader.upload(profilePicture);
+      uploadedImage = cloudResponse.secure_url;
+    } catch (err) {
+      console.warn("Cloudinary upload failed, keeping base64/fallback image:", err);
+    }
   }
 
   const updatedUser = await prisma.user.update({
     where: { id: Number(userId) },
     data: {
-      fullname: fullname.trim(),
-      email,
-      phoneNumber:contact,
-      profilePicture: uploadedImage || profilePicture,
+      fullname: fullname ? fullname.trim() : undefined,
+      email: email || undefined,
+      phoneNumber: phoneToSave || undefined,
+      profilePicture: uploadedImage || profilePicture || undefined,
     },
     select: {
       id: true,
       fullname: true,
       email: true,
+      phoneNumber: true,
       profilePicture: true,
       admin: true,
       createdAt: true,
@@ -138,4 +153,3 @@ export const updateUserProfile = asyncHandler(async (req, res) => {
     user: updatedUser,
   });
 });
-

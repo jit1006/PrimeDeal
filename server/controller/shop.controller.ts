@@ -179,13 +179,21 @@ export const updateShop = asyncHandler(async (req: Request, res: Response) => {
    GET SHOP ORDERS
 --------------------------------------------------- */
 export const getShopOrder = asyncHandler(async (req: Request, res: Response) => {
-  const shopId = Number(req.params.shopId);
+  const userId = Number(req.id);
 
-  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
-  if (!shop) throw new AppError("Shop not found", 404);
+  const shops = await prisma.shop.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+
+  if (shops.length === 0) {
+    return res.status(200).json({ success: true, count: 0, orders: [] });
+  }
+
+  const shopIds = shops.map((s) => s.id);
 
   const orders = await prisma.order.findMany({
-    where: { shopId },
+    where: { shopId: { in: shopIds } },
     include: {
       user: true,
       address: true,
